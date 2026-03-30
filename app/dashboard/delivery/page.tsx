@@ -39,6 +39,28 @@ export default function DeliveryDashboard() {
   const [pickupStage, setPickupStage] = useState<"select" | "pickup" | "deliver" | "complete">("select")
   const [sliderValue, setSliderValue] = useState(0)
 
+  const [otpCode, setOtpCode] = useState("");
+  const [verificationMessage, setVerificationMessage] = useState("");
+
+  const verifyHandshake = async () => {
+      try {
+          const response = await fetch("http://localhost:8081/api/otp/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ otpCode: otpCode })
+          });
+          const data = await response.json();
+          if (data.status === "success") {
+              setVerificationMessage("Success! Food handover authorized.");
+              setPickupStage("deliver"); // This moves the UI to the next screen!
+          } else {
+              setVerificationMessage("Error: Invalid OTP.");
+          }
+      } catch (error) {
+          setVerificationMessage("Error connecting to server.");
+      }
+  };
+
   const handleAcceptPickup = (pickup: typeof pendingPickups[0]) => {
     setActivePickup(pickup)
     setPickupStage("pickup")
@@ -263,35 +285,27 @@ export default function DeliveryDashboard() {
                       <p className="font-medium text-foreground">{activePickup.type} - {activePickup.quantity}</p>
                     </div>
 
-                    {/* Slide to Confirm */}
-                    <div className="relative">
-                      <div className="bg-primary/10 rounded-full h-14 relative overflow-hidden">
-                        <div 
-                          className="absolute left-0 top-0 bottom-0 bg-primary rounded-full transition-all"
-                          style={{ width: `${sliderValue}%` }}
+                   {/* Real OTP Input Box */}
+                    <div className="flex flex-col gap-3 mt-4">
+                        <input 
+                            type="text" 
+                            placeholder="Enter 4-digit OTP" 
+                            maxLength={4}
+                            className="border-2 border-gray-300 p-3 rounded-md text-center text-2xl tracking-[1em] text-black font-bold focus:border-green-600 focus:outline-none"
+                            value={otpCode}
+                            onChange={(e) => setOtpCode(e.target.value)}
                         />
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={sliderValue}
-                          onChange={(e) => setSliderValue(Number(e.target.value))}
-                          onMouseUp={handleSlideConfirm}
-                          onTouchEnd={handleSlideConfirm}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <span className="font-medium text-foreground">
-                            {pickupStage === "pickup" ? "Slide to Confirm Pickup" : "Slide to Confirm Delivery"}
-                          </span>
-                        </div>
-                        <div 
-                          className="absolute top-1 bottom-1 w-12 bg-primary-foreground rounded-full flex items-center justify-center shadow-md pointer-events-none transition-all"
-                          style={{ left: `calc(${sliderValue}% - ${sliderValue * 0.12}px)` }}
+                        <button 
+                            onClick={verifyHandshake}
+                            className="bg-green-600 text-white p-4 rounded-md font-bold text-lg hover:bg-green-700 transition"
                         >
-                          <Navigation className="h-5 w-5 text-primary" />
-                        </div>
-                      </div>
+                            Verify Code & Complete Pickup
+                        </button>
+                        {verificationMessage && (
+                            <p className={`text-center font-bold text-lg ${verificationMessage.includes("Error") ? "text-red-500" : "text-green-600"}`}>
+                                {verificationMessage}
+                            </p>
+                        )}
                     </div>
                   </>
                 ) : (
