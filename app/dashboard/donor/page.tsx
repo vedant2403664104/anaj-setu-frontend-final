@@ -1,315 +1,694 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { Heart, Package, Wallet, Award, Bell, Settings, LogOut, Plus, TrendingUp } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { useState, useEffect } from 'react';
+import {
+  Clock,
+  MapPin,
+  Package,
+  PlusCircle,
+  X,
+  ChefHat,
+  LogOut,
+  Bell,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+} from "lucide-react";
 
-const donations = [
+// ─── Interfaces ────────────────────────────────────────────────────────────────
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  password: string;
+  phone?: string | null;
+  role: string;
+  isVerified: number;
+  address?: string | null;
+  createdAt: string;
+}
+
+export interface FoodListing {
+  id: number;
+  donor: User;
+  title: string;
+  description?: string | null;
+  quantity: number;
+  quantityUnit: string;
+  foodType: string;
+  pickupAddress: string;
+  expiryTime: string;
+  pickupDeadline: string;
+  status: "AVAILABLE" | string;
+  createdAt: string;
+}
+
+// ─── Mock Data ─────────────────────────────────────────────────────────────────
+
+const mockUser: User = {
+  id: 1,
+  name: "Rajesh Kumar",
+  email: "rajesh@saffronhotel.com",
+  password: "",
+  phone: "+91-9876543210",
+  role: "DONOR",
+  isVerified: 1,
+  address: "12, Marine Drive, Mumbai, Maharashtra",
+  createdAt: "2024-01-15T10:30:00Z",
+};
+
+const mockDonations: FoodListing[] = [
   {
-    id: 1,
-    type: "Biryani",
-    quantity: "100 meals",
-    date: "Mar 28, 2024",
-    status: "Delivered",
-    recipient: "Hope Foundation"
+    id: 101,
+    donor: mockUser,
+    title: "Fresh Paneer Curry & Rice",
+    description: "Leftover from wedding banquet, freshly prepared.",
+    quantity: 25,
+    quantityUnit: "kg",
+    foodType: "VEG",
+    pickupAddress: "12, Marine Drive, Mumbai",
+    expiryTime: "2025-07-01T20:00:00Z",
+    pickupDeadline: "2025-07-01T18:00:00Z",
+    status: "AVAILABLE",
+    createdAt: "2025-07-01T12:00:00Z",
   },
   {
-    id: 2,
-    type: "Rice & Dal",
-    quantity: "50 meals",
-    date: "Mar 25, 2024",
-    status: "Delivered",
-    recipient: "City Shelter"
+    id: 102,
+    donor: mockUser,
+    title: "Assorted Dinner Plates",
+    description: "Mixed veg and non-veg from corporate lunch.",
+    quantity: 40,
+    quantityUnit: "plates",
+    foodType: "NON-VEG",
+    pickupAddress: "56, BKC, Bandra East, Mumbai",
+    expiryTime: "2025-07-01T22:00:00Z",
+    pickupDeadline: "2025-07-01T19:30:00Z",
+    status: "AVAILABLE",
+    createdAt: "2025-07-01T14:00:00Z",
   },
   {
-    id: 3,
-    type: "Mixed Food",
-    quantity: "75 meals",
-    date: "Mar 20, 2024",
-    status: "Delivered",
-    recipient: "Care Trust"
+    id: 103,
+    donor: mockUser,
+    title: "Bakery Bread & Pastries",
+    description: "End-of-day bakery surplus.",
+    quantity: 15,
+    quantityUnit: "packets",
+    foodType: "VEG",
+    pickupAddress: "8, Hill Road, Bandra West, Mumbai",
+    expiryTime: "2025-07-02T08:00:00Z",
+    pickupDeadline: "2025-07-01T21:00:00Z",
+    status: "ASSIGNED",
+    createdAt: "2025-07-01T16:00:00Z",
+  },
+];
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getStatusStyle(status: string): string {
+  switch (status.toUpperCase()) {
+    case "AVAILABLE":
+      return "bg-green-100 text-green-700 border border-green-200";
+    case "ASSIGNED":
+      return "bg-blue-100 text-blue-700 border border-blue-200";
+    case "PICKED_UP":
+      return "bg-yellow-100 text-yellow-700 border border-yellow-200";
+    case "DELIVERED":
+      return "bg-orange-100 text-orange-700 border border-orange-200";
+    default:
+      return "bg-gray-100 text-gray-600 border border-gray-200";
   }
-]
+}
 
-export default function DonorDashboard() {
-  const [showDonateForm, setShowDonateForm] = useState(false)
-  const [donationType, setDonationType] = useState<"food" | "money" | null>(null)
-  const [foodForm, setFoodForm] = useState({
-    foodType: "",
-    quantity: "",
-    expiryTime: "",
-    description: ""
-  })
+// ─── Donate Modal ──────────────────────────────────────────────────────────────
 
-  const handleFoodDonation = (e: React.FormEvent) => {
-    e.preventDefault()
-    console.log("Food donation:", foodForm)
-    setShowDonateForm(false)
-    setDonationType(null)
+interface DonateFormData {
+  title: string;
+  foodType: string;
+  quantity: string;
+  quantityUnit: string;
+  pickupAddress: string;
+  expiryTime: string;
+}
+
+const initialForm: DonateFormData = {
+  title: "",
+  foodType: "VEG",
+  quantity: "",
+  quantityUnit: "kg",
+  pickupAddress: "",
+  expiryTime: "",
+};
+
+interface DonateModalProps {
+  onClose: () => void;
+  onSuccess: (listing: FoodListing) => void;
+  donor: User;
+}
+
+function DonateModal({ onClose, onSuccess, donor }: DonateModalProps) {
+  const [form, setForm] = useState<DonateFormData>(initialForm);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) {
+    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (!form.title || !form.quantity || !form.pickupAddress || !form.expiryTime) {
+      setError("Please fill in all required fields.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+    const payload = {
+    donorId: donor.id,        
+    title: form.title,
+    foodType: form.foodType,  
+    quantity: Number(form.quantity), 
+    quantityUnit: form.quantityUnit,
+    pickupAddress: form.pickupAddress,
+    expiryTime: new Date(form.expiryTime).toISOString(),
+    pickupDeadline: new Date(form.expiryTime).toISOString(),
+    status: "AVAILABLE"
+};
+
+      const res = await fetch("http://localhost:8081/api/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.message || "Failed to create donation.");
+      }
+
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+
+        const created: FoodListing = await res.json();
+        onSuccess(created);
+      } else {
+        console.warn("Server did not return JSON. Closing modal anyway.");
+        onSuccess({ ...payload, id: Math.random(), donor: donor, status: "AVAILABLE", createdAt: new Date().toISOString() } as FoodListing);
+      }
+
+      onClose();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      {/* Sidebar */}
-      <aside className="fixed left-0 top-0 h-full w-64 bg-card border-r border-border hidden lg:block">
-        <div className="p-6">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-lg">FB</span>
-            </div>
-            <span className="font-bold text-lg text-foreground">Food Bridge</span>
-          </Link>
-        </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
 
-        <nav className="px-4 space-y-2">
-          <Link href="/dashboard/donor" className="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/10 text-primary">
-            <Heart className="h-5 w-5" />
-            Dashboard
-          </Link>
-          <Link href="/dashboard/donor/donations" className="flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
-            <Package className="h-5 w-5" />
-            My Donations
-          </Link>
-          <Link href="/dashboard/donor/monetary" className="flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
-            <Wallet className="h-5 w-5" />
-            Monetary Donations
-          </Link>
-          <Link href="/dashboard/donor/certificates" className="flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
-            <Award className="h-5 w-5" />
-            Certificates
-          </Link>
-        </nav>
-
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-border">
-          <div className="flex items-center gap-3 px-4 py-2">
-            <div className="w-10 h-10 bg-accent/10 rounded-full flex items-center justify-center">
-              <Heart className="h-5 w-5 text-accent" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm text-foreground truncate">Grand Hotel</p>
-              <p className="text-xs text-muted-foreground">Donor Account</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="lg:ml-64">
+      {/* Modal */}
+      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
-        <header className="bg-card border-b border-border px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+        <div className="bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 p-2 rounded-xl">
+              <ChefHat className="text-white" size={20} />
+            </div>
+            <div>
+              <h2 className="text-white font-bold text-lg leading-tight">
+                Donate Food
+              </h2>
+              <p className="text-orange-100 text-xs mt-0.5">
+                Help bridge the food gap
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="bg-white/20 hover:bg-white/30 text-white rounded-xl p-2 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          {error && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3">
+              <AlertCircle size={16} />
+              {error}
+            </div>
+          )}
+
+          {/* Title */}
           <div>
-            <h1 className="text-xl font-bold text-foreground">Donor Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Welcome back, Grand Hotel</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon">
-              <Bell className="h-5 w-5" />
-            </Button>
-            <Button variant="ghost" size="icon">
-              <Settings className="h-5 w-5" />
-            </Button>
-            <Link href="/">
-              <Button variant="ghost" size="icon">
-                <LogOut className="h-5 w-5" />
-              </Button>
-            </Link>
-          </div>
-        </header>
-
-        <div className="p-6">
-          {/* Donation Type Selection */}
-          <div className="grid sm:grid-cols-2 gap-6 mb-8">
-            <Dialog open={showDonateForm && donationType === "food"} onOpenChange={(open) => { setShowDonateForm(open); if (!open) setDonationType(null); }}>
-              <DialogTrigger asChild>
-                <Card className="cursor-pointer hover:shadow-lg transition-all hover:border-primary/50 group" onClick={() => { setDonationType("food"); setShowDonateForm(true); }}>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                        <Package className="h-8 w-8 text-primary" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-semibold text-foreground">Donate Food</h3>
-                        <p className="text-muted-foreground">Share surplus food with those in need</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Donate Food</DialogTitle>
-                  <DialogDescription>Fill in the details of the food you want to donate</DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleFoodDonation} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="foodType">Food Type</Label>
-                    <Select value={foodForm.foodType} onValueChange={(value) => setFoodForm({ ...foodForm, foodType: value })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select food type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cooked">Cooked Food</SelectItem>
-                        <SelectItem value="raw">Raw Ingredients</SelectItem>
-                        <SelectItem value="packaged">Packaged Food</SelectItem>
-                        <SelectItem value="fruits">Fruits & Vegetables</SelectItem>
-                        <SelectItem value="dairy">Dairy Products</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="quantity">Quantity (Number of meals)</Label>
-                    <Input
-                      id="quantity"
-                      type="number"
-                      placeholder="e.g., 50"
-                      value={foodForm.quantity}
-                      onChange={(e) => setFoodForm({ ...foodForm, quantity: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="expiryTime">Best Before</Label>
-                    <Input
-                      id="expiryTime"
-                      type="datetime-local"
-                      value={foodForm.expiryTime}
-                      onChange={(e) => setFoodForm({ ...foodForm, expiryTime: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="description">Description</Label>
-                    <Input
-                      id="description"
-                      placeholder="Brief description of the food"
-                      value={foodForm.description}
-                      onChange={(e) => setFoodForm({ ...foodForm, description: e.target.value })}
-                    />
-                  </div>
-                  <Button type="submit" className="w-full">
-                    Submit Donation
-                  </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
-
-            <Card className="cursor-pointer hover:shadow-lg transition-all hover:border-accent/50 group">
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-accent/10 rounded-2xl flex items-center justify-center group-hover:bg-accent/20 transition-colors">
-                    <Wallet className="h-8 w-8 text-accent" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-foreground">Donate Money</h3>
-                    <p className="text-muted-foreground">Contribute to meal distribution</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              Food Title <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              name="title"
+              value={form.title}
+              onChange={handleChange}
+              placeholder="e.g. Fresh Dal & Roti"
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder-gray-400 transition"
+            />
           </div>
 
-          {/* Stats */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Donated</p>
-                    <p className="text-2xl font-bold text-foreground">225</p>
-                    <p className="text-xs text-muted-foreground">meals</p>
-                  </div>
-                  <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
-                    <Package className="h-6 w-6 text-primary" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Monetary</p>
-                    <p className="text-2xl font-bold text-foreground">Rs. 15,000</p>
-                    <p className="text-xs text-muted-foreground">contributed</p>
-                  </div>
-                  <div className="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
-                    <Wallet className="h-6 w-6 text-accent" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">NGOs Helped</p>
-                    <p className="text-2xl font-bold text-foreground">12</p>
-                    <p className="text-xs text-muted-foreground">organizations</p>
-                  </div>
-                  <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
-                    <TrendingUp className="h-6 w-6 text-primary" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Certificates</p>
-                    <p className="text-2xl font-bold text-foreground">3</p>
-                    <p className="text-xs text-muted-foreground">CSR certs</p>
-                  </div>
-                  <div className="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
-                    <Award className="h-6 w-6 text-accent" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {/* Food Type */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              Food Type <span className="text-red-500">*</span>
+            </label>
+            <select
+              name="foodType"
+              value={form.foodType}
+              onChange={handleChange}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+            >
+              <option value="VEG">🥦 Vegetarian</option>
+              <option value="NON-VEG">🍗 Non-Vegetarian</option>
+              <option value="VEGAN">🌱 Vegan</option>
+              <option value="JAIN">🌼 Jain</option>
+            </select>
           </div>
 
-          {/* Recent Donations */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Recent Donations</CardTitle>
-                <CardDescription>Your food donation history</CardDescription>
+          {/* Quantity + Unit */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                Quantity <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                name="quantity"
+                value={form.quantity}
+                onChange={handleChange}
+                placeholder="e.g. 20"
+                min={1}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder-gray-400 transition"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                Unit <span className="text-red-500">*</span>
+              </label>
+              <select
+                name="quantityUnit"
+                value={form.quantityUnit}
+                onChange={handleChange}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+              >
+                <option value="kg">kg</option>
+                <option value="plates">Plates</option>
+                <option value="packets">Packets</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Pickup Address */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              Pickup Address <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              name="pickupAddress"
+              value={form.pickupAddress}
+              onChange={handleChange}
+              placeholder="e.g. 12, Marine Drive, Mumbai"
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder-gray-400 transition"
+            />
+          </div>
+
+          {/* Expiry Time */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              Expiry Time <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="datetime-local"
+              name="expiryTime"
+              value={form.expiryTime}
+              onChange={handleChange}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-semibold text-sm transition-colors"
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Submitting…
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={16} />
+                  Submit Donation
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Donation Card ─────────────────────────────────────────────────────────────
+
+function DonationCard({ listing }: { listing: FoodListing }) {
+  const foodTypeEmoji: Record<string, string> = {
+    VEG: "🥦",
+    "NON-VEG": "🍗",
+    VEGAN: "🌱",
+    JAIN: "🌼",
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden group">
+      {/* Card Top Accent */}
+      <div className="h-1 bg-gradient-to-r from-orange-400 to-yellow-400" />
+
+      <div className="p-5">
+        {/* Header Row */}
+        <div className="flex items-start justify-between gap-2 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-orange-50 rounded-xl p-2.5 group-hover:bg-orange-100 transition-colors">
+              <Package className="text-orange-500" size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold text-gray-900 text-sm leading-tight">
+                {listing.title}
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                ID #{listing.id}
+              </p>
+            </div>
+          </div>
+          <span
+            className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${getStatusStyle(
+              listing.status
+            )}`}
+          >
+            {listing.status}
+          </span>
+        </div>
+
+        {/* Info Grid */}
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-2.5 text-sm text-gray-600">
+            <div className="bg-gray-50 rounded-lg p-1.5">
+              <Package size={13} className="text-gray-400" />
+            </div>
+            <span>
+              <span className="font-semibold text-gray-800">
+                {listing.quantity} {listing.quantityUnit}
+              </span>
+              &nbsp;·&nbsp;
+              <span className="text-gray-500">
+                {foodTypeEmoji[listing.foodType] ?? "🍽️"} {listing.foodType}
+              </span>
+            </span>
+          </div>
+
+          <div className="flex items-start gap-2.5 text-sm text-gray-600">
+            <div className="bg-gray-50 rounded-lg p-1.5 mt-0.5 flex-shrink-0">
+              <MapPin size={13} className="text-gray-400" />
+            </div>
+            <span className="line-clamp-1 text-gray-600">
+              {listing.pickupAddress}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5 text-sm text-gray-600">
+            <div className="bg-gray-50 rounded-lg p-1.5 flex-shrink-0">
+              <Clock size={13} className="text-gray-400" />
+            </div>
+            <span>
+              Expires:{" "}
+              <span className="font-medium text-gray-700">
+                {formatDateTime(listing.expiryTime)}
+              </span>
+            </span>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="mt-4 pt-3 border-t border-gray-50 flex items-center justify-between">
+          <span className="text-xs text-gray-400">
+            Listed {formatDateTime(listing.createdAt)}
+          </span>
+          <button className="text-xs font-semibold text-orange-600 hover:text-orange-700 transition-colors">
+            View Details →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Stats Card ────────────────────────────────────────────────────────────────
+
+function StatsCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ElementType;
+  color: string;
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+      <div className={`rounded-xl p-3 ${color}`}>
+        <Icon size={20} className="text-white" />
+      </div>
+      <div>
+        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <p className="text-sm text-gray-500 mt-0.5">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────────
+
+export default function DonorDashboard() {
+  const [donations, setDonations] = useState<FoodListing[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [user] = useState<User>(mockUser);
+
+useEffect(() => {
+    async function fetchRealDonations() {
+      try {
+        const response = await fetch('http://localhost:8081/api/listings/available');
+        
+        if (response.ok) {
+          const realData = await response.json();
+          setDonations(realData);
+        } else {
+          console.error("Failed to fetch data from the backend.");
+        }
+      } catch (error) {
+        console.error("Backend is offline. Is Java running?", error);
+      }
+    }
+
+    fetchRealDonations();
+  }, []); 
+
+  function handleNewDonation(listing: FoodListing) {
+    setDonations((prev) => [listing, ...prev]);
+  }
+
+  const availableCount = donations.filter((d) => d.status === "AVAILABLE").length;
+  const totalQty = donations.reduce((acc, d) => acc + d.quantity, 0);
+
+  return (
+    <div className="min-h-screen bg-orange-50">
+      {/* ── Navbar ── */}
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-40 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* Brand */}
+            <div className="flex items-center gap-2.5">
+              <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-2">
+                <ChefHat className="text-white" size={20} />
               </div>
-              <Button variant="outline" size="sm">
-                View All
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {donations.map((donation) => (
-                  <div key={donation.id} className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                        <Package className="h-6 w-6 text-primary" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground">{donation.type}</p>
-                        <p className="text-sm text-muted-foreground">{donation.quantity} to {donation.recipient}</p>
-                        <p className="text-xs text-muted-foreground">{donation.date}</p>
-                      </div>
-                    </div>
-                    <Badge variant="secondary" className="bg-primary/10 text-primary">
-                      {donation.status}
-                    </Badge>
-                  </div>
-                ))}
+              <div className="leading-tight">
+                <span className="font-extrabold text-gray-900 text-lg tracking-tight">
+                  Anaj
+                </span>
+                <span className="font-extrabold text-orange-500 text-lg tracking-tight">
+                  Setu
+                </span>
+                <p className="text-xs text-gray-400 -mt-0.5 hidden sm:block">
+                  Food Bridge Platform
+                </p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+
+            {/* Right */}
+            <div className="flex items-center gap-3">
+              <button className="relative p-2 rounded-xl text-gray-500 hover:bg-gray-100 transition-colors">
+                <Bell size={20} />
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-orange-500 rounded-full" />
+              </button>
+              <div className="flex items-center gap-2.5 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
+                <div className="w-7 h-7 bg-gradient-to-br from-orange-400 to-orange-600 rounded-lg flex items-center justify-center text-white text-xs font-bold uppercase">
+                  {user.name.charAt(0)}
+                </div>
+                <div className="hidden sm:block leading-tight">
+                  <p className="text-sm font-semibold text-gray-800 truncate max-w-[120px]">
+                    {user.name}
+                  </p>
+                  <p className="text-xs text-orange-500 font-medium">Donor</p>
+                </div>
+              </div>
+              <button className="p-2 rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-500 transition-colors">
+                <LogOut size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Main Content ── */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Hero CTA */}
+        <div className="bg-gradient-to-br from-orange-500 via-orange-600 to-yellow-500 rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-lg shadow-orange-200">
+          <div>
+            <p className="text-orange-100 text-sm font-medium uppercase tracking-widest mb-1">
+              Welcome back 👋
+            </p>
+            <h1 className="text-white font-extrabold text-2xl sm:text-3xl leading-tight">
+              {user.name}
+            </h1>
+            <p className="text-orange-100 mt-1.5 text-sm max-w-sm">
+              Every meal you donate bridges the gap between waste and hope.
+              Start a new donation today.
+            </p>
+          </div>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 bg-white text-orange-600 hover:bg-orange-50 font-bold px-6 py-3.5 rounded-2xl shadow-md hover:shadow-lg transition-all duration-200 whitespace-nowrap text-sm"
+          >
+            <PlusCircle size={18} />
+            Donate Food
+          </button>
+        </div>
+
+        {/* Stats Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatsCard
+            label="Total Donations"
+            value={donations.length}
+            icon={Package}
+            color="bg-gradient-to-br from-orange-400 to-orange-600"
+          />
+          <StatsCard
+            label="Available Right Now"
+            value={availableCount}
+            icon={CheckCircle2}
+            color="bg-gradient-to-br from-green-400 to-green-600"
+          />
+          <StatsCard
+            label="Total Quantity (all units)"
+            value={`${totalQty}+`}
+            icon={ChefHat}
+            color="bg-gradient-to-br from-yellow-400 to-orange-500"
+          />
+        </div>
+
+        {/* Donations Grid */}
+        <div>
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">
+                Your Active Donations
+              </h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                {donations.length} listing{donations.length !== 1 ? "s" : ""}{" "}
+                found
+              </p>
+            </div>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white font-semibold text-sm px-4 py-2.5 rounded-xl transition-colors shadow-sm"
+            >
+              <PlusCircle size={16} />
+              <span className="hidden sm:inline">New Donation</span>
+            </button>
+          </div>
+
+          {donations.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-dashed border-gray-200 py-16 flex flex-col items-center justify-center text-center">
+              <div className="bg-orange-50 rounded-full p-5 mb-4">
+                <Package className="text-orange-300" size={36} />
+              </div>
+              <h3 className="font-bold text-gray-700 text-lg">
+                No donations yet
+              </h3>
+              <p className="text-gray-400 text-sm mt-1 max-w-xs">
+                Click "Donate Food" to list your first donation and make an
+                impact today.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {donations.map((listing) => (
+                <DonationCard key={listing.id} listing={listing} />
+              ))}
+            </div>
+          )}
         </div>
       </main>
+
+      {/* ── Donate Modal ── */}
+      {isModalOpen && (
+        <DonateModal
+          onClose={() => setIsModalOpen(false)}
+          onSuccess={handleNewDonation}
+          donor={user}
+        />
+      )}
     </div>
-  )
+  );
 }
