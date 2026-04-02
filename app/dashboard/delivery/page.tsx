@@ -1,383 +1,273 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { Truck, MapPin, Package, Wallet, Bell, Settings, LogOut, Navigation, Phone, CheckCircle } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import {
+  Truck, Bell, Settings, LogOut, Package, MapPin, Clock,
+  CheckCircle2, TrendingUp, Flame, X, Loader2, AlertCircle, ShieldCheck,
+  KeyRound, Gift, ChefHat, Calendar,
+} from "lucide-react";
 
-const pendingPickups = [
-  {
-    id: 1,
-    donor: "Grand Hotel",
-    donorAddress: "123 Main Street, Downtown",
-    recipient: "Hope Foundation",
-    recipientAddress: "456 Oak Avenue, East Side",
-    type: "Biryani",
-    quantity: "50 meals",
-    distance: "4.2 km",
-    payment: "Rs. 150",
-    status: "pending"
-  },
-  {
-    id: 2,
-    donor: "City Restaurant",
-    donorAddress: "789 Food Lane, Central",
-    recipient: "Care Trust",
-    recipientAddress: "321 Help Street, West Side",
-    type: "Rice & Curry",
-    quantity: "30 meals",
-    distance: "2.8 km",
-    payment: "Rs. 100",
-    status: "pending"
-  }
-]
+interface Assignment {
+  id: number;
+  foodName: string;
+  quantity: string;
+  donorName?: string;
+  pickupAddress: string;
+  expiryTime: string;
+  createdAt?: string;
+  postedAt?: string;
+  status: "CLAIMED" | "DELIVERED";
+  ngoPhone?: string;
+  claimedBy?: string;
+}
 
-export default function DeliveryDashboard() {
-  const [activePickup, setActivePickup] = useState<typeof pendingPickups[0] | null>(null)
-  const [pickupStage, setPickupStage] = useState<"select" | "pickup" | "deliver" | "complete">("select")
-  const [sliderValue, setSliderValue] = useState(0)
+const statusConfig = {
+  CLAIMED: { label: "Pickup Pending", style: "bg-orange-100 text-orange-700 border border-orange-200", dot: "bg-orange-500" },
+  DELIVERED: { label: "Delivered", style: "bg-green-100 text-green-700 border border-green-200", dot: "bg-green-500" },
+};
 
-  const [otpCode, setOtpCode] = useState("");
-  const [verificationMessage, setVerificationMessage] = useState("");
+function OtpInput({ assignment, onDelivered }: { assignment: Assignment; onDelivered: () => void }) {
+  const [otp, setOtp] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
-  const verifyHandshake = async () => {
-      try {
-          const response = await fetch("http://localhost:8081/api/otp/verify", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ otpCode: otpCode })
-          });
-          const data = await response.json();
-          if (data.status === "success") {
-              setVerificationMessage("Success! Food handover authorized.");
-              setPickupStage("deliver"); // This moves the UI to the next screen!
-          } else {
-              setVerificationMessage("Error: Invalid OTP.");
-          }
-      } catch (error) {
-          setVerificationMessage("Error connecting to server.");
-      }
-  };
-
-  const handleAcceptPickup = (pickup: typeof pendingPickups[0]) => {
-    setActivePickup(pickup)
-    setPickupStage("pickup")
+  async function handleVerify() {
+    if (otp.length !== 4) { setError("Enter a 4-digit OTP."); return; }
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("http://localhost:8081/api/otp/verify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: assignment.ngoPhone, otp, purpose: "DELIVERY" }),
+      });
+      const data = await res.json();
+      if (!data.valid) { setError("Incorrect OTP. Ask the NGO to re-share."); return; }
+      const res2 = await fetch(`http://localhost:8081/api/food-listings/${assignment.id}/deliver`, { method: "PUT" });
+      if (!res2.ok) { const msg = await res2.text(); throw new Error(msg || "Failed to mark as delivered."); }
+      onDelivered();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally { setLoading(false); }
   }
 
-  const handleSlideConfirm = () => {
-    if (sliderValue >= 90) {
-      if (pickupStage === "pickup") {
-        setPickupStage("deliver")
-        setSliderValue(0)
-      } else if (pickupStage === "deliver") {
-        setPickupStage("complete")
-      }
-    }
-  }
-
-  const handleNextPickup = () => {
-    setActivePickup(null)
-    setPickupStage("select")
-    setSliderValue(0)
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-sm shadow-orange-200 transition-all hover:-translate-y-0.5">
+        <KeyRound size={13} />Enter Delivery OTP
+      </button>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      {/* Sidebar */}
-      <aside className="fixed left-0 top-0 h-full w-64 bg-card border-r border-border hidden lg:block">
-        <div className="p-6">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-lg">FB</span>
-            </div>
-            <span className="font-bold text-lg text-foreground">Food Bridge</span>
+    <div className="mt-3 border-t border-gray-200 pt-3 space-y-2">
+      {error && <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2"><AlertCircle size={12} />{error}</div>}
+      <div className="flex gap-2 items-center flex-wrap">
+        <input
+          type="number" inputMode="numeric" maxLength={4}
+          value={otp} onChange={(e) => setOtp(e.target.value.slice(0, 4))}
+          placeholder="4-digit OTP"
+          className="border border-gray-200 rounded-xl px-4 py-2.5 text-center text-lg tracking-[0.4em] w-40 font-mono bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-400"
+        />
+        <button onClick={handleVerify} disabled={loading} className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-sm shadow-green-200 transition-all">
+          {loading ? <><Loader2 size={13} className="animate-spin" />Verifying...</> : <><CheckCircle2 size={13} />Confirm</>}
+        </button>
+        <button onClick={() => { setOpen(false); setError(null); setOtp(""); }} className="text-gray-400 text-xs font-medium hover:text-gray-600 transition-colors">Cancel</button>
+      </div>
+      <p className="text-[11px] text-gray-400">Ask the NGO representative to read the OTP from their phone.</p>
+    </div>
+  );
+}
+
+export default function DeliveryDashboard() {
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [delivered, setDelivered] = useState<Assignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"PENDING" | "COMPLETED">("PENDING");
+  const [driverName, setDriverName] = useState("Driver");
+  const [isFirstVisit, setIsFirstVisit] = useState(true);
+  const [deliveryId, setDeliveryId] = useState<number>(0);
+
+  useEffect(() => {
+    const stored = sessionStorage.getItem("anajsetu_user");
+    if (stored) {
+      const user = JSON.parse(stored);
+      setDriverName(user.contactName || user.name || "Driver");
+      setDeliveryId(user.id || 0);
+      setIsFirstVisit(!user.hasVisited);
+      sessionStorage.setItem("anajsetu_user", JSON.stringify({ ...user, hasVisited: true }));
+    }
+  }, []);
+
+  const fetchAssignments = useCallback(async () => {
+    if (!deliveryId) return;
+    try {
+      const res = await fetch(`http://localhost:8081/api/food-listings/driver/${deliveryId}`);
+      if (res.ok) {
+        const all: Assignment[] = await res.json();
+        setAssignments(all.filter((a) => a.status === "CLAIMED"));
+        setDelivered(all.filter((a) => a.status === "DELIVERED"));
+      }
+    } catch { } finally { setLoading(false); }
+  }, [deliveryId]);
+
+  useEffect(() => {
+    if (deliveryId) {
+      fetchAssignments();
+      const i = setInterval(fetchAssignments, 15000);
+      return () => clearInterval(i);
+    }
+  }, [deliveryId, fetchAssignments]);
+
+  function markDelivered(id: number) {
+    const item = assignments.find((a) => a.id === id);
+    if (item) {
+      setAssignments((prev) => prev.filter((a) => a.id !== id));
+      setDelivered((prev) => [{ ...item, status: "DELIVERED" }, ...prev]);
+    }
+  }
+
+  const avatarLetter = driverName?.charAt(0)?.toUpperCase() || "D";
+  const pending = assignments.length;
+  const totalDone = delivered.length;
+
+  return (
+    <div className="min-h-screen bg-blue-50/30">
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl p-2 shadow-md shadow-blue-200"><Truck className="text-white" size={18} /></div>
+            <div className="leading-tight"><span className="font-extrabold text-gray-900 text-lg tracking-tight">Anaj</span><span className="font-extrabold text-blue-600 text-lg tracking-tight">Setu</span></div>
           </Link>
+          <div className="flex items-center gap-2">
+            <button className="relative w-9 h-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center transition-colors"><Bell size={16} className="text-gray-500" /></button>
+            <button className="w-9 h-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center transition-colors"><Settings size={16} className="text-gray-500" /></button>
+            <div className="hidden sm:flex items-center gap-2 ml-1 pl-3 border-l border-gray-100">
+              <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center text-white text-xs font-bold">{avatarLetter}</div>
+              <div className="leading-tight"><p className="text-sm font-bold text-gray-800">{driverName}</p><p className="text-[11px] text-blue-600 font-semibold">Delivery Partner</p></div>
+            </div>
+            <Link href="/auth/login" className="w-9 h-9 rounded-xl border border-gray-200 bg-white hover:bg-red-50 hover:border-red-200 flex items-center justify-center transition-colors"><LogOut size={15} className="text-gray-400 hover:text-red-500 transition-colors" /></Link>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+        <div className="relative bg-gradient-to-br from-blue-600 to-blue-700 rounded-3xl px-8 py-7 overflow-hidden shadow-lg shadow-blue-200">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+          <div className="relative flex items-center justify-between gap-6 flex-wrap">
+            <div>
+              <p className="text-blue-200 text-xs font-bold uppercase tracking-widest mb-1">{isFirstVisit ? "Welcome aboard! 🚛" : "Ready to deliver? 🚛"}</p>
+              <h1 className="text-white font-extrabold text-2xl sm:text-3xl tracking-tight mb-1">{driverName}</h1>
+              <p className="text-blue-100 text-sm max-w-sm">{pending} pickup{pending !== 1 ? "s" : ""} waiting. Verify OTP on delivery.</p>
+            </div>
+            <div className="flex items-center gap-2 bg-white/15 border border-white/20 rounded-2xl px-5 py-3">
+              <Gift size={18} className="text-blue-200" />
+              <div><p className="text-white font-extrabold text-xl leading-tight">{totalDone}</p><p className="text-blue-200 text-xs font-medium">delivered today</p></div>
+            </div>
+          </div>
         </div>
 
-        <nav className="px-4 space-y-2">
-          <Link href="/dashboard/delivery" className="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/10 text-primary">
-            <Truck className="h-5 w-5" />
-            Dashboard
-          </Link>
-          <Link href="/dashboard/delivery/pickups" className="flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
-            <Package className="h-5 w-5" />
-            My Pickups
-          </Link>
-          <Link href="/dashboard/delivery/earnings" className="flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
-            <Wallet className="h-5 w-5" />
-            Earnings
-          </Link>
-          <Link href="/dashboard/delivery/map" className="flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
-            <MapPin className="h-5 w-5" />
-            Live Map
-          </Link>
-        </nav>
-
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-border">
-          <div className="flex items-center gap-3 px-4 py-2">
-            <div className="w-10 h-10 bg-foreground/10 rounded-full flex items-center justify-center">
-              <Truck className="h-5 w-5 text-foreground" />
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          {[
+            { label: "Pending Pickups", value: pending, icon: Package, iconBg: "bg-orange-100", iconColor: "text-orange-600" },
+            { label: "Delivered Today", value: totalDone, icon: CheckCircle2, iconBg: "bg-green-100", iconColor: "text-green-600" },
+            { label: "Total Trips", value: pending + totalDone, icon: TrendingUp, iconBg: "bg-blue-100", iconColor: "text-blue-600" },
+          ].map(({ label, value, icon: Icon, iconBg, iconColor }) => (
+            <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-5 flex items-center gap-4 hover:shadow-md transition-shadow">
+              <div className={`${iconBg} rounded-xl p-3 flex-shrink-0`}><Icon size={20} className={iconColor} /></div>
+              <div><p className="text-2xl font-extrabold text-gray-900 leading-tight">{value}</p><p className="text-xs text-gray-500 font-medium mt-0.5">{label}</p></div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm text-foreground truncate">Rahul Kumar</p>
-              <p className="text-xs text-muted-foreground">Delivery Partner</p>
-            </div>
-          </div>
+          ))}
         </div>
-      </aside>
 
-      {/* Main Content */}
-      <main className="lg:ml-64">
-        {/* Header */}
-        <header className="bg-card border-b border-border px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Delivery Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Welcome back, Rahul</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <Badge variant="secondary" className="bg-primary/10 text-primary">Online</Badge>
-            <Button variant="ghost" size="icon">
-              <Bell className="h-5 w-5" />
-            </Button>
-            <Button variant="ghost" size="icon">
-              <Settings className="h-5 w-5" />
-            </Button>
-            <Link href="/">
-              <Button variant="ghost" size="icon">
-                <LogOut className="h-5 w-5" />
-              </Button>
-            </Link>
-          </div>
-        </header>
-
-        <div className="p-6">
-          {/* Stats */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Today&apos;s Deliveries</p>
-                    <p className="text-2xl font-bold text-foreground">8</p>
-                    <p className="text-xs text-muted-foreground">completed</p>
-                  </div>
-                  <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
-                    <Package className="h-6 w-6 text-primary" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Today&apos;s Earnings</p>
-                    <p className="text-2xl font-bold text-foreground">Rs. 850</p>
-                    <p className="text-xs text-muted-foreground">earned</p>
-                  </div>
-                  <div className="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
-                    <Wallet className="h-6 w-6 text-accent" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Distance</p>
-                    <p className="text-2xl font-bold text-foreground">24.5 km</p>
-                    <p className="text-xs text-muted-foreground">traveled</p>
-                  </div>
-                  <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
-                    <Navigation className="h-6 w-6 text-primary" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Rating</p>
-                    <p className="text-2xl font-bold text-foreground">4.8</p>
-                    <p className="text-xs text-muted-foreground">out of 5</p>
-                  </div>
-                  <div className="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
-                    <CheckCircle className="h-6 w-6 text-accent" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-7 pt-6 pb-4 border-b border-gray-50 flex items-center justify-between gap-4">
+            <div className="flex gap-1.5">
+              {[{ key: "PENDING", label: "Pickups", count: pending }, { key: "COMPLETED", label: "Delivered", count: totalDone }].map(({ key, label, count }) => (
+                <button key={key} onClick={() => setActiveTab(key as "PENDING" | "COMPLETED")}
+                  className={`flex items-center gap-1.5 text-sm font-bold px-4 py-2.5 rounded-xl transition-all duration-150 ${activeTab === key ? "bg-blue-600 text-white shadow-sm" : "bg-gray-50 text-gray-500 hover:bg-gray-100 border border-gray-100"}`}>
+                  {label}<span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${activeTab === key ? "bg-white/25 text-white" : "bg-gray-200 text-gray-600"}`}>{count}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 font-medium hidden sm:block">OTP verified delivery only</p>
           </div>
 
-          {/* Active Pickup or Map View */}
-          {activePickup ? (
-            <Card className="mb-8">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>
-                      {pickupStage === "pickup" && "Pickup Location"}
-                      {pickupStage === "deliver" && "Delivery Location"}
-                      {pickupStage === "complete" && "Delivery Complete"}
-                    </CardTitle>
-                    <CardDescription>
-                      {pickupStage === "pickup" && `Pick up from ${activePickup.donor}`}
-                      {pickupStage === "deliver" && `Deliver to ${activePickup.recipient}`}
-                      {pickupStage === "complete" && "Great job! Delivery completed successfully."}
-                    </CardDescription>
-                  </div>
-                  <Badge variant="secondary">
-                    {activePickup.payment}
-                  </Badge>
+          {activeTab === "PENDING" && (
+            <div className="px-7 py-5 space-y-4">
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-16"><Loader2 size={28} className="text-blue-400 animate-spin mb-3" /><p className="text-sm text-gray-400">Loading assignments...</p></div>
+              ) : assignments.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4"><Truck size={26} className="text-blue-300" /></div>
+                  <h3 className="font-bold text-gray-700 mb-1">No pickups right now</h3>
+                  <p className="text-sm text-gray-400 max-w-xs">You will see assignments here once an NGO claims a listing and adds you to the delivery.</p>
                 </div>
-              </CardHeader>
-              <CardContent>
-                {pickupStage !== "complete" ? (
-                  <>
-                    {/* Map Placeholder */}
-                    <div className="bg-muted rounded-xl h-64 mb-6 flex items-center justify-center relative overflow-hidden">
-                      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-accent/5" />
-                      <div className="text-center relative z-10">
-                        <MapPin className="h-12 w-12 text-primary mx-auto mb-2" />
-                        <p className="font-medium text-foreground">
-                          {pickupStage === "pickup" ? activePickup.donorAddress : activePickup.recipientAddress}
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">{activePickup.distance} away</p>
-                      </div>
-                      {/* Decorative map lines */}
-                      <div className="absolute inset-0 opacity-20">
-                        <div className="absolute top-1/4 left-0 right-0 h-px bg-border" />
-                        <div className="absolute top-2/4 left-0 right-0 h-px bg-border" />
-                        <div className="absolute top-3/4 left-0 right-0 h-px bg-border" />
-                        <div className="absolute left-1/4 top-0 bottom-0 w-px bg-border" />
-                        <div className="absolute left-2/4 top-0 bottom-0 w-px bg-border" />
-                        <div className="absolute left-3/4 top-0 bottom-0 w-px bg-border" />
-                      </div>
-                    </div>
-
-                    {/* Location Details */}
-                    <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg mb-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-                          <MapPin className="h-5 w-5 text-primary" />
+              ) : (
+                assignments.map((item) => (
+                  <div key={item.id} className="bg-gray-50 hover:bg-blue-50/40 border border-gray-100 hover:border-blue-200 rounded-2xl px-5 py-5 transition-all duration-150">
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"><Flame size={18} className="text-blue-600" /></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div><h3 className="font-bold text-gray-900 text-sm">{item.foodName}</h3><p className="text-xs text-gray-500 mt-0.5">{item.quantity}</p></div>
+                          <span className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 border border-orange-200"><span className="w-1.5 h-1.5 rounded-full bg-orange-500" />Pickup Pending</span>
                         </div>
-                        <div>
-                          <p className="font-medium text-foreground">
-                            {pickupStage === "pickup" ? activePickup.donor : activePickup.recipient}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {pickupStage === "pickup" ? activePickup.donorAddress : activePickup.recipientAddress}
-                          </p>
+                        <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1">
+                          {item.donorName && <span className="flex items-center gap-1 text-xs text-gray-400"><ChefHat size={11} />From: {item.donorName}</span>}
+                          {item.claimedBy && <span className="flex items-center gap-1 text-xs text-gray-400"><ShieldCheck size={11} />To: {item.claimedBy}</span>}
+                          <span className="flex items-center gap-1 text-xs text-gray-400"><MapPin size={11} />{item.pickupAddress}</span>
+                          <span className="flex items-center gap-1 text-xs text-gray-400"><Clock size={11} />Best before {item.expiryTime}</span>
+                          <span className="flex items-center gap-1 text-xs text-gray-400"><Calendar size={11} />{item.createdAt || item.postedAt || "Recently"}</span>
                         </div>
                       </div>
-                      <Button size="sm" variant="outline">
-                        <Phone className="h-4 w-4 mr-1" /> Call
-                      </Button>
                     </div>
-
-                    {/* Food Details */}
-                    <div className="p-4 bg-muted/50 rounded-lg mb-6">
-                      <p className="text-sm text-muted-foreground mb-1">Package Details</p>
-                      <p className="font-medium text-foreground">{activePickup.type} - {activePickup.quantity}</p>
+                    <div className="mt-3 pl-14 flex gap-2">
+                      <OtpInput assignment={item} onDelivered={() => markDelivered(item.id)} />
                     </div>
-
-                   {/* Real OTP Input Box */}
-                    <div className="flex flex-col gap-3 mt-4">
-                        <input 
-                            type="text" 
-                            placeholder="Enter 4-digit OTP" 
-                            maxLength={4}
-                            className="border-2 border-gray-300 p-3 rounded-md text-center text-2xl tracking-[1em] text-black font-bold focus:border-green-600 focus:outline-none"
-                            value={otpCode}
-                            onChange={(e) => setOtpCode(e.target.value)}
-                        />
-                        <button 
-                            onClick={verifyHandshake}
-                            className="bg-green-600 text-white p-4 rounded-md font-bold text-lg hover:bg-green-700 transition"
-                        >
-                            Verify Code & Complete Pickup
-                        </button>
-                        {verificationMessage && (
-                            <p className={`text-center font-bold text-lg ${verificationMessage.includes("Error") ? "text-red-500" : "text-green-600"}`}>
-                                {verificationMessage}
-                            </p>
-                        )}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-8">
-                    <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <CheckCircle className="h-10 w-10 text-primary" />
-                    </div>
-                    <h3 className="text-xl font-semibold text-foreground mb-2">Delivery Completed!</h3>
-                    <p className="text-muted-foreground mb-4">You earned {activePickup.payment} for this delivery.</p>
-                    <div className="p-4 bg-muted/50 rounded-lg mb-6 max-w-sm mx-auto">
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Amount Received:</span>
-                        <span className="font-bold text-foreground">{activePickup.payment}</span>
-                      </div>
-                    </div>
-                    <Button onClick={handleNextPickup} size="lg">
-                      Next Pickup
-                    </Button>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            /* Pending Pickups List */
-            <Card>
-              <CardHeader>
-                <CardTitle>Available Pickups</CardTitle>
-                <CardDescription>Select a pickup to start delivery</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {pendingPickups.map((pickup) => (
-                    <div key={pickup.id} className="p-4 bg-muted/50 rounded-lg">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <p className="font-medium text-foreground">{pickup.type}</p>
-                          <p className="text-sm text-muted-foreground">{pickup.quantity}</p>
-                        </div>
-                        <Badge variant="secondary">{pickup.payment}</Badge>
-                      </div>
-                      
-                      <div className="space-y-2 mb-4">
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="w-2 h-2 rounded-full bg-primary" />
-                          <span className="text-muted-foreground">From:</span>
-                          <span className="text-foreground">{pickup.donor}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="w-2 h-2 rounded-full bg-accent" />
-                          <span className="text-muted-foreground">To:</span>
-                          <span className="text-foreground">{pickup.recipient}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <Navigation className="w-3 h-3 text-muted-foreground" />
-                          <span className="text-muted-foreground">{pickup.distance}</span>
-                        </div>
-                      </div>
-                      
-                      <Button 
-                        onClick={() => handleAcceptPickup(pickup)} 
-                        className="w-full"
-                      >
-                        Accept Pickup
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                ))
+              )}
+            </div>
           )}
+
+          {activeTab === "COMPLETED" && (
+            <div className="px-7 py-5 space-y-3">
+              {delivered.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <div className="w-16 h-16 bg-green-50 rounded-2xl flex items-center justify-center mb-4"><CheckCircle2 size={26} className="text-green-300" /></div>
+                  <h3 className="font-bold text-gray-700 mb-1">No deliveries yet</h3>
+                  <p className="text-sm text-gray-400 max-w-xs">Your completed deliveries will appear here.</p>
+                </div>
+              ) : (
+                delivered.map((item) => (
+                  <div key={item.id} className="flex items-start gap-4 bg-green-50/50 border border-green-100 rounded-2xl px-5 py-4">
+                    <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"><CheckCircle2 size={18} className="text-green-600" /></div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-gray-900 text-sm">{item.foodName}</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">{item.quantity}</p>
+                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                        <span className="flex items-center gap-1 text-xs text-gray-400"><MapPin size={11} />{item.pickupAddress}</span>
+                        {item.claimedBy && <span className="flex items-center gap-1 text-xs text-gray-400"><ShieldCheck size={11} />Delivered to: {item.claimedBy}</span>}
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-bold text-green-700 bg-green-100 border border-green-200 px-2.5 py-1 rounded-full flex items-center gap-1"><CheckCircle2 size={11} />Done</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-100 rounded-2xl px-6 py-5 flex items-center gap-4">
+          <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0"><Gift size={20} className="text-blue-600" /></div>
+          <div>
+            <p className="text-sm font-bold text-blue-800">Delivery Impact — {driverName}</p>
+            <p className="text-xs text-blue-600 mt-0.5">You have delivered <span className="font-bold">{totalDone} orders</span> totalling an estimated <span className="font-bold">{totalDone * 40}+ meals</span> to people in need. 🚛❤️</p>
+          </div>
         </div>
       </main>
     </div>
-  )
+  );
 }
