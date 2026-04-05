@@ -57,16 +57,33 @@ function ClaimModal({ listing, onConfirm, onClose }: { listing: FoodListing; onC
     try {
       const stored = sessionStorage.getItem("anajsetu_user");
       const user = stored ? JSON.parse(stored) : {};
-      const res = await fetch(`http://localhost:8081/api/food-listings/${listing.id}/claim/${user.id}`, { method: "PUT" });
-      if (!res.ok) { const msg = await res.text(); throw new Error(msg || "Failed to claim listing."); }
+
+      // ✅ FIXED — use userId first, fallback to id
+      const resolvedNgoId = user.userId || user.id;
+
+      if (!resolvedNgoId) {
+        throw new Error("Session expired. Please login again.");
+      }
+
+      const res = await fetch(
+        `http://localhost:8081/api/food-listings/${listing.id}/claim/${resolvedNgoId}`,
+        { method: "PUT" }
+      );
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || "Failed to claim listing.");
+      }
       await fetch("http://localhost:8081/api/otp/send", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: user.phone, purpose: "DELIVERY" }),
       });
       onConfirm();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -123,7 +140,7 @@ export default function TrustDashboard() {
       const user = JSON.parse(stored);
       setUserName(user.contactName || user.name || "");
       setTrustName(user.orgName || user.name || "Your Organisation");
-      setNgoId(user.id || 0);
+      setNgoId(user.userId || user.id || 0); // ✅ FIXED
       setIsFirstVisit(!user.hasVisited);
       sessionStorage.setItem("anajsetu_user", JSON.stringify({ ...user, hasVisited: true }));
     }
