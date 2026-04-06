@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
   ShieldCheck, Bell, Settings, LogOut, Package, MapPin, Clock,
   CheckCircle2, Users, TrendingUp, ChefHat, Flame, Calendar,
-  X, Loader2, AlertCircle, Search, Filter, ArrowRight, Heart, Leaf, Timer,
+  X, Loader2, AlertCircle, Search, Filter, ArrowRight, Heart, Leaf, Timer, Map,
 } from "lucide-react";
 
 interface FoodListing {
@@ -18,6 +18,8 @@ interface FoodListing {
   postedAt?: string;
   createdAt?: string;
   status: "AVAILABLE" | "CLAIMED" | "DELIVERED";
+  latitude?: number;
+  longitude?: number;
 }
 
 const statusConfig = {
@@ -47,6 +49,92 @@ function CountdownTimer({ createdAt }: { createdAt?: string }) {
   );
 }
 
+// ✅ MAP COMPONENT
+function FoodMap({ listings }: { listings: FoodListing[] }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<unknown>(null);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+
+    if (!document.getElementById("leaflet-css")) {
+      const link = document.createElement("link");
+      link.id = "leaflet-css";
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const L = (window as any).L;
+      if (!mapRef.current || mapInstanceRef.current) return;
+
+      const map = L.map(mapRef.current).setView([19.0760, 72.8777], 11);
+      mapInstanceRef.current = map;
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors",
+      }).addTo(map);
+
+      const greenIcon = L.divIcon({
+        html: `<div style="background:#16a34a;width:32px;height:32px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3)"></div>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 32],
+        popupAnchor: [0, -32],
+        className: "",
+      });
+
+      listings.forEach((listing) => {
+        if (listing.latitude && listing.longitude) {
+          L.marker([listing.latitude, listing.longitude], { icon: greenIcon })
+            .addTo(map)
+            .bindPopup(`
+              <div style="font-family:sans-serif;min-width:180px">
+                <p style="font-weight:800;font-size:14px;margin:0 0 4px">🍲 ${listing.foodName}</p>
+                <p style="font-size:12px;color:#555;margin:0 0 2px">📦 ${listing.quantity}</p>
+                <p style="font-size:12px;color:#555;margin:0 0 2px">📍 ${listing.pickupAddress}</p>
+                <p style="font-size:12px;color:#555;margin:0">⏰ Best before ${listing.expiryTime}</p>
+              </div>
+            `);
+        }
+      });
+    };
+    document.head.appendChild(script);
+
+    return () => {
+      if (mapInstanceRef.current) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (mapInstanceRef.current as any).remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [listings]);
+
+  const withCoords = listings.filter((l) => l.latitude && l.longitude).length;
+
+  return (
+    <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-7 pt-5 pb-4 border-b border-gray-50 flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-extrabold text-gray-900 flex items-center gap-2">
+            <Map size={18} className="text-green-600" /> Nearby Food Map
+          </h2>
+          <p className="text-xs text-gray-400 mt-0.5">{withCoords} listing{withCoords !== 1 ? "s" : ""} with location data</p>
+        </div>
+        {withCoords === 0 && (
+          <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl font-semibold">
+            📍 No location data yet
+          </span>
+        )}
+      </div>
+      <div ref={mapRef} style={{ height: "380px", width: "100%" }} />
+    </div>
+  );
+}
+
 function ClaimModal({ listing, onConfirm, onClose }: { listing: FoodListing; onConfirm: () => void; onClose: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,14 +145,8 @@ function ClaimModal({ listing, onConfirm, onClose }: { listing: FoodListing; onC
     try {
       const stored = sessionStorage.getItem("anajsetu_user");
       const user = stored ? JSON.parse(stored) : {};
-
-      // ✅ FIXED — use userId first, fallback to id
       const resolvedNgoId = user.userId || user.id;
-
-      if (!resolvedNgoId) {
-        throw new Error("Session expired. Please login again.");
-      }
-
+      if (!resolvedNgoId) throw new Error("Session expired. Please login again.");
       const res = await fetch(
         `http://localhost:8081/api/food-listings/${listing.id}/claim/${resolvedNgoId}`,
         { method: "PUT" }
@@ -125,7 +207,7 @@ export default function TrustDashboard() {
   const [myClaims, setMyClaims] = useState<FoodListing[]>([]);
   const [loadingListings, setLoadingListings] = useState(true);
   const [claimTarget, setClaimTarget] = useState<FoodListing | null>(null);
-  const [activeTab, setActiveTab] = useState<"BROWSE" | "MY_CLAIMS">("BROWSE");
+  const [activeTab, setActiveTab] = useState<"BROWSE" | "MY_CLAIMS" | "MAP">("BROWSE");
   const [searchQuery, setSearchQuery] = useState("");
   const [trustName, setTrustName] = useState("Your Organisation");
   const [userName, setUserName] = useState("");
@@ -140,7 +222,7 @@ export default function TrustDashboard() {
       const user = JSON.parse(stored);
       setUserName(user.contactName || user.name || "");
       setTrustName(user.orgName || user.name || "Your Organisation");
-      setNgoId(user.userId || user.id || 0); // ✅ FIXED
+      setNgoId(user.userId || user.id || 0);
       setIsFirstVisit(!user.hasVisited);
       sessionStorage.setItem("anajsetu_user", JSON.stringify({ ...user, hasVisited: true }));
     }
@@ -254,8 +336,12 @@ export default function TrustDashboard() {
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-7 pt-6 pb-4 border-b border-gray-50 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex gap-1.5">
-              {[{ key: "BROWSE", label: "Browse Food", count: available.length }, { key: "MY_CLAIMS", label: "My Claims", count: myClaims.length }].map(({ key, label, count }) => (
-                <button key={key} onClick={() => setActiveTab(key as "BROWSE" | "MY_CLAIMS")}
+              {[
+                { key: "BROWSE", label: "Browse Food", count: available.length },
+                { key: "MY_CLAIMS", label: "My Claims", count: myClaims.length },
+                { key: "MAP", label: "🗺️ Map View", count: available.filter(l => l.latitude).length },
+              ].map(({ key, label, count }) => (
+                <button key={key} onClick={() => setActiveTab(key as "BROWSE" | "MY_CLAIMS" | "MAP")}
                   className={`flex items-center gap-1.5 text-sm font-bold px-4 py-2.5 rounded-xl transition-all duration-150 ${activeTab === key ? "bg-green-600 text-white shadow-sm" : "bg-gray-50 text-gray-500 hover:bg-gray-100 border border-gray-100"}`}>
                   {label}<span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${activeTab === key ? "bg-white/25 text-white" : "bg-gray-200 text-gray-600"}`}>{count}</span>
                 </button>
@@ -336,6 +422,13 @@ export default function TrustDashboard() {
                   );
                 })
               )}
+            </div>
+          )}
+
+          {/* ✅ MAP TAB */}
+          {activeTab === "MAP" && (
+            <div className="p-4">
+              <FoodMap listings={available} />
             </div>
           )}
         </div>

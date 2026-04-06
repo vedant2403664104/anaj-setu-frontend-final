@@ -18,9 +18,10 @@ interface Listing {
   status: "AVAILABLE" | "CLAIMED" | "DELIVERED";
   createdAt?: string;
   postedAt?: string;
-  claimedBy?: { id: number; name: string; phone?: string } | string; // ← updated
+  claimedBy?: { id: number; name: string; phone?: string } | string;
   donorId?: number;
 }
+
 const statusConfig = {
   AVAILABLE: { label: "Available", style: "bg-green-100 text-green-700 border border-green-200", dot: "bg-green-500" },
   CLAIMED: { label: "Claimed", style: "bg-orange-100 text-orange-700 border border-orange-200", dot: "bg-orange-500" },
@@ -39,9 +40,36 @@ function DonateModal({ onClose, defaultAddress, donorId, onSuccess }: {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  // ✅ GPS States
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [locationStatus, setLocationStatus] = useState("📍 Fetching your location...");
+
+  // ✅ Auto-grab GPS on modal open
+useEffect(() => {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(position.coords.latitude);
+        setLongitude(position.coords.longitude);
+        setLocationStatus("✅ Location captured!");
+        console.log("✅ GPS captured:", position.coords.latitude, position.coords.longitude); // ← ADDED
+      },
+      (err) => {
+        console.log("❌ GPS Error:", err.code, err.message); // ← ADDED
+        setLocationStatus("❌ Location denied. Enter address manually.");
+      }
+    );
+  } else {
+    setLocationStatus("❌ GPS not supported on this device.");
+  }
+}, []);
+
+async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    console.log("📍 GPS at submit — lat:", latitude, "lng:", longitude); // ← ADD THIS LINE HERE
+
     if (!foodName || !quantity || !pickupAddress || !expiryTime) {
       setError("Please fill all required fields.");
       return;
@@ -75,6 +103,8 @@ function DonateModal({ onClose, defaultAddress, donorId, onSuccess }: {
           notes,
           donorId: resolvedDonorId,
           status: "AVAILABLE",
+          latitude: latitude,      // ✅ GPS latitude
+          longitude: longitude,    // ✅ GPS longitude
         }),
       });
       if (!res.ok) {
@@ -118,6 +148,17 @@ function DonateModal({ onClose, defaultAddress, donorId, onSuccess }: {
               <AlertCircle size={16} /><span>{error}</span>
             </div>
           )}
+
+          {/* ✅ GPS Location Status Banner */}
+          <div className={`flex items-center gap-2 rounded-xl px-4 py-2.5 border ${
+            latitude ? "bg-green-50 border-green-100" : "bg-blue-50 border-blue-100"
+          }`}>
+            <MapPin size={14} className={latitude ? "text-green-500 flex-shrink-0" : "text-blue-500 flex-shrink-0"} />
+            <p className={`text-xs font-semibold ${latitude ? "text-green-600" : "text-blue-600"}`}>
+              {locationStatus}
+            </p>
+          </div>
+
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Food Name <span className="text-orange-500">*</span></label>
             <input type="text" value={foodName} onChange={(e) => setFoodName(e.target.value)}
@@ -172,7 +213,6 @@ export default function DonorDashboard() {
   const [isFirstVisit, setIsFirstVisit] = useState(true);
   const [donorId, setDonorId] = useState<number>(0);
 
-  // ✅ FIX: tagline moved to state to avoid hydration mismatch
   const [tagline, setTagline] = useState("Your generosity turns leftovers into lifelines. 🍱");
 
   useEffect(() => {
@@ -191,7 +231,6 @@ export default function DonorDashboard() {
     }
   }, []);
 
-  // ✅ FIX: random tagline picked only on client after mount
   useEffect(() => {
     const taglines = [
       "Your generosity turns leftovers into lifelines. 🍱",
@@ -366,14 +405,14 @@ export default function DonorDashboard() {
                         <span className="flex items-center gap-1 text-xs text-gray-400"><Calendar size={11} />{listing.createdAt || listing.postedAt || "Just now"}</span>
                       </div>
                       {listing.claimedBy && (
-  <div className="mt-2 inline-flex items-center gap-1.5 bg-green-50 border border-green-100 text-green-700 text-xs font-semibold px-2.5 py-1 rounded-lg">
-    <CheckCircle2 size={11} />Claimed by {
-      typeof listing.claimedBy === "object"
-        ? (listing.claimedBy as { name?: string }).name || "NGO"
-        : listing.claimedBy
-    }
-  </div>
-)}
+                        <div className="mt-2 inline-flex items-center gap-1.5 bg-green-50 border border-green-100 text-green-700 text-xs font-semibold px-2.5 py-1 rounded-lg">
+                          <CheckCircle2 size={11} />Claimed by {
+                            typeof listing.claimedBy === "object"
+                              ? (listing.claimedBy as { name?: string }).name || "NGO"
+                              : listing.claimedBy
+                          }
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                       {listing.status === "AVAILABLE" && (
